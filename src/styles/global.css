@@ -1,0 +1,44 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/bricolage-grotesque';
+
+@theme {
+  --font-sans: 'DM Sans Variable', system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', system-ui, sans-serif;
+
+  --color-brand: #d6362b;
+  --color-brand-soft: #fce9e7;
+  --color-ink: #1a1a1a;
+  --color-muted: #5c5a55;
+  --color-subtle: #6f6d68;
+  --color-surface: #f5f4f1;
+  --color-line: #e6e3dd;
+  --color-line-strong: #cfcbc2;
+  --color-veg: #1f8a3b;
+  --color-nonveg: #a8281f;
+  --color-highlight-bg: #fff1d6;
+  --color-highlight-ink: #7a4f00;
+
+  --radius-card: 16px;
+  --radius-control: 14px;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background: #ffffff;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
