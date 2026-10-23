@@ -4,7 +4,7 @@ const schema = z.object({
   VITE_API_BASE_URL: z.string().default('/api'),
   VITE_USE_MOCKS: z
     .enum(['true', 'false'])
-    .default('true')
+    .default('false')
     .transform((v) => v === 'true'),
 })
 

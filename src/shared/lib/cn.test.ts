@@ -2,7 +2,8 @@ import { cn } from './cn'
 
 describe('cn', () => {
   it('joins class names and skips falsy values', () => {
-    expect(cn('a', false && 'b', undefined, 'c')).toBe('a c')
+    const isHidden = false
+    expect(cn('a', isHidden && 'b', undefined, 'c')).toBe('a c')
   })
 
   it('lets the last conflicting Tailwind class win', () => {

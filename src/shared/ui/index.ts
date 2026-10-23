@@ -1,1 +1,5 @@
 export { Button, type ButtonProps } from './Button'
+export { Chip } from './Chip'
+export { Input } from './Input'
+export { QuantityStepper } from './QuantityStepper'
+export { VegMark } from './VegMark'
