@@ -11,4 +11,9 @@ describe('VegMark', () => {
     render(<VegMark kind="nonveg" />)
     expect(screen.getByRole('img', { name: 'Non-vegetarian' })).toBeInTheDocument()
   })
+
+  it('is hidden from screen readers when decorative', () => {
+    render(<VegMark kind="veg" decorative />)
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
 })

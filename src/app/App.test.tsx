@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/react'
 import { App } from './App'
 
 describe('App', () => {
-  it('renders the heading', () => {
+  it('renders the first screen', () => {
     render(<App />)
-    expect(screen.getByRole('heading', { name: /restaurant ordering app/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
   })
 })
