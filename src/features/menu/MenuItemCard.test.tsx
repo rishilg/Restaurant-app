@@ -12,7 +12,7 @@ function find(id: string) {
 function renderCard(id: string) {
   render(
     <MemoryRouter>
-      <MenuItemCard item={find(id)} />
+      <MenuItemCard item={find(id)} action={<button type="button">Test action</button>} />
     </MemoryRouter>,
   )
 }
@@ -41,5 +41,15 @@ describe('MenuItemCard', () => {
   it('shows the veg or non-veg mark', () => {
     renderCard('butter-chicken')
     expect(screen.getByRole('img', { name: 'Non-vegetarian' })).toBeInTheDocument()
+  })
+
+  it('shows the action slot for dishes that can be ordered', () => {
+    renderCard('paneer-tikka')
+    expect(screen.getByRole('button', { name: 'Test action' })).toBeInTheDocument()
+  })
+
+  it('hides the action slot for a sold-out dish', () => {
+    renderCard('chicken-65')
+    expect(screen.queryByRole('button', { name: 'Test action' })).not.toBeInTheDocument()
   })
 })

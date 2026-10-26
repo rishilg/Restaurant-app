@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { cn, formatMoney, paths } from '@/shared/lib'
 import { VegMark } from '@/shared/ui'
@@ -5,9 +6,11 @@ import type { MenuItem } from './schemas'
 
 type MenuItemCardProps = {
   item: MenuItem
+  /** Slot for the Add / quantity control. The menu feature does not know about the cart. */
+  action?: ReactNode
 }
 
-export function MenuItemCard({ item }: MenuItemCardProps) {
+export function MenuItemCard({ item, action }: MenuItemCardProps) {
   const details = (
     <>
       <span className="flex items-center gap-2">
@@ -52,6 +55,7 @@ export function MenuItemCard({ item }: MenuItemCardProps) {
             item.available ? 'bg-[#F1E4D3]' : 'bg-[#ECEAE6]',
           )}
         />
+        {item.available && action}
         {!item.available && (
           <span className="flex h-11 w-full items-center justify-center rounded-xl border-[1.5px] border-line bg-surface text-sm font-bold text-muted">
             Sold out

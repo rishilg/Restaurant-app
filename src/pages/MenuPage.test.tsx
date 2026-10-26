@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
+import { useCartStore } from '@/features/cart'
 import { MenuPage } from './MenuPage'
 
 function renderPage() {
@@ -11,6 +12,9 @@ function renderPage() {
   )
 }
 
+beforeEach(() => {
+  useCartStore.getState().clear()
+})
 describe('MenuPage', () => {
   it('starts on the first category', () => {
     renderPage()
@@ -53,5 +57,30 @@ describe('MenuPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(screen.getByText('Paneer Tikka')).toBeInTheDocument()
+  })
+
+  it('adds a simple dish straight from the menu and shows the cart bar', async () => {
+    renderPage()
+    expect(screen.queryByRole('link', { name: /view cart/i })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add Crispy Corn' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add one more Crispy Corn' }))
+
+    const bar = screen.getByRole('link', { name: /view cart/i })
+    expect(bar).toHaveTextContent('2 items')
+    expect(bar).toHaveTextContent('₹398')
+  })
+
+  it('sends a dish with options to its page instead of adding it', () => {
+    renderPage()
+    expect(screen.getByRole('link', { name: 'Add Paneer Tikka' })).toHaveAttribute(
+      'href',
+      '/menu/paneer-tikka',
+    )
+  })
+
+  it('does not offer to add a sold-out dish', () => {
+    renderPage()
+    expect(screen.queryByRole('button', { name: 'Add Chicken 65' })).not.toBeInTheDocument()
   })
 })

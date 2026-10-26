@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { filterItems, MenuItemCard, useMenu, type Diet } from '@/features/menu'
 import { cn, paths } from '@/shared/lib'
 import { Button, Chip, VegMark } from '@/shared/ui'
+import { CartBar, QuickAdd } from '@/features/cart'
 
 const iconLink = 'flex size-11 items-center justify-center rounded-full bg-surface hover:bg-line'
 
@@ -124,13 +125,29 @@ export function MenuPage() {
               </h2>
               <ul>
                 {items.map((item) => (
-                  <MenuItemCard key={item.id} item={item} />
+                  <MenuItemCard
+                    key={item.id}
+                    item={item}
+                    action={
+                      <QuickAdd
+                        line={{
+                          itemId: item.id,
+                          name: item.name,
+                          unitPrice: item.basePrice,
+                          optionIds: [],
+                          note: '',
+                        }}
+                        detailHref={item.optionGroups.length > 0 ? paths.item(item.id) : undefined}
+                      />
+                    }
+                  />
                 ))}
               </ul>
             </section>
           ))
         )}
       </div>
+      <CartBar />
     </main>
   )
 }
