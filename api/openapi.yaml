@@ -1,0 +1,620 @@
+openapi: 3.0.3
+info:
+  title: Restaurant Ordering API
+  version: 1.0.0
+  description: |
+    Contract between the React app and the Spring Boot backend.
+
+    Rules that apply everywhere:
+    - All money is an integer number of paise (Rs 100 = 10000). Never a decimal.
+    - The server recomputes every price. The browser's prices are never trusted.
+    - Errors use RFC 9457 `application/problem+json`.
+    - POST requests that create something take an `Idempotency-Key` header, so a retry never creates a duplicate.
+    - Times are ISO-8601 UTC strings.
+security: []   # public by default; protected operations list bearerAuth explicitly
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+tags:
+  - name: Auth
+    description: Phone and one-time code login
+  - name: Menu
+    description: Dishes and options
+  - name: Sessions
+    description: Dine-in or takeaway sessions
+  - name: Orders
+    description: Placing, tracking and updating orders
+  - name: Billing
+    description: Bill calculation and payment
+  - name: Receipts
+    description: Receipts and feedback
+
+paths:
+  /auth/otp/request:
+    post:
+      tags: [Auth]
+      operationId: requestOtp
+      summary: Send a login code to a phone number
+      description: In development the code is always 123456. In production it is sent by SMS.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OtpRequest' }
+      responses:
+        '204': { description: Code sent }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/otp/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyOtp
+      summary: Exchange phone + code for an access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OtpVerify' }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /menu/items:
+    get:
+      tags: [Menu]
+      operationId: listMenuItems
+      summary: List dishes, optionally filtered
+      parameters:
+        - { name: q, in: query, description: Search text matched against name and description, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: diet, in: query, schema: { $ref: '#/components/schemas/DietFilter' } }
+      responses:
+        '200':
+          description: Matching dishes in menu order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MenuItem' }
+
+  /menu/items/{itemId}:
+    get:
+      tags: [Menu]
+      operationId: getMenuItem
+      summary: One dish with its option groups
+      parameters:
+        - { $ref: '#/components/parameters/ItemId' }
+      responses:
+        '200':
+          description: The dish
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MenuItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sessions:
+    post:
+      tags: [Sessions]
+      operationId: startSession
+      summary: Start a dining session (dine-in at a table, or takeaway)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionCreate' }
+      responses:
+        '201':
+          description: Session started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  /sessions/{sessionId}:
+    get:
+      tags: [Sessions]
+      operationId: getSession
+      summary: Get a session
+      parameters:
+        - { $ref: '#/components/parameters/SessionId' }
+      responses:
+        '200':
+          description: The session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders:
+    post:
+      tags: [Orders]
+      operationId: placeOrder
+      summary: Place an order
+      description: |
+        The server looks up each dish, validates the chosen options, and computes
+        unit prices. Sold-out dishes are rejected with 409.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderCreate' }
+            example:
+              sessionId: s-2001
+              lines:
+                - { itemId: paneer-tikka, optionIds: [half], note: Less spicy, quantity: 2 }
+      responses:
+        '201':
+          description: Order placed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [Orders]
+      operationId: listOrders
+      summary: Orders of a session, oldest first
+      parameters:
+        - { name: sessionId, in: query, required: true, schema: { type: string } }
+        - { name: paid, in: query, description: Filter by paid state, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  /orders/{orderId}:
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: Get one order
+      parameters:
+        - { $ref: '#/components/parameters/OrderId' }
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders/{orderId}/status:
+    patch:
+      tags: [Orders]
+      operationId: updateOrderStatus
+      summary: Kitchen moves an order to its next status
+      description: Staff only. Status can only move forward one step at a time.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { $ref: '#/components/parameters/OrderId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/OrderStatus' }
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /orders/{orderId}/events:
+    get:
+      tags: [Orders]
+      operationId: streamOrderEvents
+      summary: Live status updates (Server-Sent Events)
+      description: Replaces the demo timer in the tracking screen. Each event carries the new status.
+      parameters:
+        - { $ref: '#/components/parameters/OrderId' }
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/OrderStatusEvent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /bills/quote:
+    post:
+      tags: [Billing]
+      operationId: quoteBill
+      summary: Compute the bill for a set of unpaid orders
+      description: Pure calculation, nothing is saved. GST is 5%, rounded to the nearest paisa.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BillRequest' }
+      responses:
+        '200':
+          description: The bill
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bill' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /payments:
+    post:
+      tags: [Billing]
+      operationId: pay
+      summary: Pay for a set of orders
+      description: |
+        Phase 1 (demo): every method succeeds immediately and a receipt is created.
+        Later, card and UPI go through Razorpay and the receipt appears after the signed webhook arrives.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentCreate' }
+      responses:
+        '201':
+          description: Payment recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /receipts:
+    get:
+      tags: [Receipts]
+      operationId: listReceipts
+      summary: List receipts of a session
+      parameters:
+        - { name: sessionId, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Receipts, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Receipt' }
+
+  /receipts/{receiptId}:
+    get:
+      tags: [Receipts]
+      operationId: getReceipt
+      summary: Get one receipt
+      parameters:
+        - { $ref: '#/components/parameters/ReceiptId' }
+      responses:
+        '200':
+          description: The receipt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /receipts/{receiptId}/feedback:
+    put:
+      tags: [Receipts]
+      operationId: submitFeedback
+      summary: Rate the meal (replaces any earlier feedback)
+      parameters:
+        - { $ref: '#/components/parameters/ReceiptId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Feedback' }
+      responses:
+        '200':
+          description: Receipt with feedback
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ItemId: { name: itemId, in: path, required: true, schema: { type: string, example: paneer-tikka } }
+    SessionId: { name: sessionId, in: path, required: true, schema: { type: string, example: s-2001 } }
+    OrderId: { name: orderId, in: path, required: true, schema: { type: string, example: o-1001 } }
+    ReceiptId: { name: receiptId, in: path, required: true, schema: { type: string, example: r-5001 } }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: A UUID the browser generates once per action. Repeating it returns the original result.
+      schema: { type: string, format: uuid }
+
+  responses:
+    ValidationError:
+      description: The request body or parameters are invalid
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: The thing does not exist
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: The request is valid but clashes with current state (sold out, already paid, wrong status step)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Slow down
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Money:
+      type: integer
+      format: int64
+      minimum: 0
+      description: Amount in paise
+      example: 24900
+
+    DietFilter:
+      type: string
+      enum: [all, veg, nonveg]
+
+    OrderStatus:
+      type: string
+      enum: [received, preparing, ready, served]
+
+    PaymentMethod:
+      type: string
+      enum: [upi, card, cash]
+
+    SessionMode:
+      type: string
+      enum: [dine-in, takeaway]
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string, example: 'https://api.restaurant.local/problems/item-sold-out' }
+        title: { type: string, example: Item sold out }
+        status: { type: integer, example: 409 }
+        detail: { type: string, example: Paneer Tikka is sold out }
+        errors:
+          type: array
+          description: Field-level problems for validation errors
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string, example: 'lines[0].quantity' }
+              message: { type: string, example: must be between 1 and 20 }
+
+    OtpRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone: { type: string, pattern: '^[6-9]\d{9}$', example: '9876543210' }
+
+    OtpVerify:
+      type: object
+      required: [phone, code]
+      properties:
+        phone: { type: string, pattern: '^[6-9]\d{9}$', example: '9876543210' }
+        code: { type: string, pattern: '^\d{6}$', example: '123456' }
+
+    AuthResult:
+      type: object
+      required: [accessToken, expiresInSeconds, phone]
+      properties:
+        accessToken: { type: string }
+        expiresInSeconds: { type: integer, example: 900 }
+        phone: { type: string, example: '9876543210' }
+
+    OptionChoice:
+      type: object
+      required: [id, name, priceDelta]
+      properties:
+        id: { type: string, example: half }
+        name: { type: string, example: Half }
+        priceDelta: { type: integer, format: int64, description: 'Paise added to the base price, may be 0', example: 0 }
+
+    OptionGroup:
+      type: object
+      required: [id, name, required, choices]
+      properties:
+        id: { type: string, example: size }
+        name: { type: string, example: Size }
+        required: { type: boolean }
+        multiple: { type: boolean, default: false }
+        choices:
+          type: array
+          items: { $ref: '#/components/schemas/OptionChoice' }
+
+    MenuItem:
+      type: object
+      required: [id, name, description, category, basePrice, veg, soldOut, optionGroups]
+      properties:
+        id: { type: string, example: paneer-tikka }
+        name: { type: string, example: Paneer Tikka }
+        description: { type: string }
+        category: { type: string, example: Starters }
+        basePrice: { $ref: '#/components/schemas/Money' }
+        veg: { type: boolean }
+        soldOut: { type: boolean }
+        optionGroups:
+          type: array
+          items: { $ref: '#/components/schemas/OptionGroup' }
+
+    SessionCreate:
+      type: object
+      required: [mode]
+      properties:
+        mode: { $ref: '#/components/schemas/SessionMode' }
+        name: { type: string, maxLength: 60, example: Rishil }
+        tableLabel: { type: string, example: Table 12, description: Required when mode is dine-in }
+
+    Session:
+      type: object
+      required: [id, mode, createdAt]
+      properties:
+        id: { type: string, example: s-2001 }
+        mode: { $ref: '#/components/schemas/SessionMode' }
+        name: { type: string }
+        tableLabel: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    OrderLineCreate:
+      type: object
+      required: [itemId, quantity]
+      properties:
+        itemId: { type: string }
+        optionIds: { type: array, items: { type: string } }
+        note: { type: string, maxLength: 200 }
+        quantity: { type: integer, minimum: 1, maximum: 20 }
+
+    OrderCreate:
+      type: object
+      required: [sessionId, lines]
+      properties:
+        sessionId: { type: string }
+        lines:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/OrderLineCreate' }
+
+    OrderLine:
+      type: object
+      required: [itemId, name, unitPrice, optionIds, quantity, lineTotal]
+      description: A snapshot. It keeps the name and price from the moment of ordering, even if the menu changes later.
+      properties:
+        itemId: { type: string }
+        name: { type: string }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        optionIds: { type: array, items: { type: string } }
+        optionNames: { type: array, items: { type: string } }
+        note: { type: string }
+        quantity: { type: integer }
+        lineTotal: { $ref: '#/components/schemas/Money' }
+
+    Order:
+      type: object
+      required: [id, sessionId, status, lines, subtotal, paid, createdAt]
+      properties:
+        id: { type: string, example: o-1001 }
+        sessionId: { type: string }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/OrderLine' }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        paid: { type: boolean, description: True once a receipt lists this order }
+        createdAt: { type: string, format: date-time }
+
+    OrderStatusEvent:
+      type: object
+      required: [orderId, status, at]
+      properties:
+        orderId: { type: string }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        at: { type: string, format: date-time }
+
+    BillRequest:
+      type: object
+      required: [orderIds]
+      properties:
+        orderIds:
+          type: array
+          minItems: 1
+          items: { type: string }
+
+    Bill:
+      type: object
+      required: [orderIds, subtotal, gst, total]
+      properties:
+        orderIds: { type: array, items: { type: string } }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        gstPercent: { type: integer, example: 5 }
+        gst: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+
+    PaymentCreate:
+      type: object
+      required: [orderIds, method]
+      properties:
+        orderIds:
+          type: array
+          minItems: 1
+          items: { type: string }
+        method: { $ref: '#/components/schemas/PaymentMethod' }
+
+    Payment:
+      type: object
+      required: [id, status, method, amount]
+      properties:
+        id: { type: string, example: pay-9001 }
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        method: { $ref: '#/components/schemas/PaymentMethod' }
+        amount: { $ref: '#/components/schemas/Money' }
+        receiptId: { type: string, description: Present once status is succeeded }
+        razorpayOrderId: { type: string, description: Present for card and UPI after Razorpay is added }
+
+    Feedback:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: string, maxLength: 500 }
+
+    Receipt:
+      type: object
+      required: [id, sessionId, orderIds, lines, subtotal, gst, total, method, paidAt]
+      description: A snapshot of what was paid for.
+      properties:
+        id: { type: string, example: r-5001 }
+        sessionId: { type: string }
+        orderIds: { type: array, items: { type: string } }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/OrderLine' }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        gst: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        method: { $ref: '#/components/schemas/PaymentMethod' }
+        paidAt: { type: string, format: date-time }
+        feedback: { $ref: '#/components/schemas/Feedback' }
